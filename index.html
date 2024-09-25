@@ -1,0 +1,299 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>일 박살내기</title>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Jua&display=swap');
+        body, html {
+            height: 100%;
+            margin: 0;
+            font-family: 'Jua', sans-serif;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            background-color: #f0f0f0;
+        }
+        #game-container {
+            width: 400px;
+            text-align: center;
+            position: relative;
+        }
+        #game-board {
+            width: 400px;
+            height: 600px;
+            background-image: url('이미지/office_desk.png');
+            background-size: cover;
+            position: relative;
+            overflow: hidden;
+            border-radius: 20px;
+            box-shadow: 0 10px 20px rgba(0,0,0,0.1);
+        }
+        #character {
+            width: 100px;
+            height: 100px;
+            background-image: url('이미지/employee.png');
+            background-size: cover;
+            position: absolute;
+            bottom: 0;
+            transition: left 0.05s;
+            touch-action: none;
+            cursor: move;
+        }
+        .item {
+            position: absolute;
+            background-size: cover;
+        }
+        .item.normal {
+            width: 40px;
+            height: 40px;
+        }
+        .item.speed, .item.energy {
+            width: 50px;
+            height: 50px;
+        }
+        #score-energy {
+            margin-bottom: 15px;
+            font-size: 1.5em;
+            font-weight: bold;
+            color: #4a4a4a;
+        }
+        button {
+            padding: 10px 20px;
+            font-size: 1.2em;
+            cursor: pointer;
+            margin: 0 10px;
+            background-color: #ffd803;
+            border: none;
+            border-radius: 50px;
+            color: #272343;
+            transition: all 0.3s;
+        }
+        button:hover {
+            background-color: #ffa41b;
+            transform: scale(1.05);
+        }
+        #game-over, #start-screen {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+            background-color: rgba(255, 255, 255, 0.9);
+            font-size: 2em;
+            font-weight: bold;
+            color: #272343;
+            z-index: 10;
+        }
+        #start-button, #restart-button {
+            font-size: 0.7em;
+            margin-top: 15px;
+            width: 200px;
+        }
+    </style>
+</head>
+<body>
+    <div id="game-container">
+        <div id="score-energy">해치운 일: <span id="score">0</span> | 남은 체력: <span id="energy">5</span></div>
+        <div id="game-board">
+            <div id="character"></div>
+            <div id="game-over">
+                <div>졌지만 잘 싸웠다!</div>
+                <button id="restart-button">내일도 출근..</button>
+            </div>
+            <div id="start-screen">
+                <div>일 박살내기</div>
+                <button id="start-button">오늘도 화이팅!</button>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        const GAME_WIDTH = 400;
+        const GAME_HEIGHT = 600;
+        const CHARACTER_WIDTH = 100;
+        const CHARACTER_HEIGHT = 100;
+        const NORMAL_ITEM_SIZE = 40;
+        const SPECIAL_ITEM_SIZE = 50;
+        const FALL_SPEED = 2;
+        const ITEM_GENERATION_CHANCE = 0.02;
+        const SPECIAL_ITEM_CHANCE = 0.3;
+        const SPEED_BOOST_DURATION = 5000;
+        const CHARACTER_SPEED = 5;
+        const MAX_ENERGY = 5;
+
+        const gameBoard = document.getElementById('game-board');
+        const character = document.getElementById('character');
+        const scoreElement = document.getElementById('score');
+        const energyElement = document.getElementById('energy');
+        const gameOverElement = document.getElementById('game-over');
+        const startScreen = document.getElementById('start-screen');
+        const startButton = document.getElementById('start-button');
+        const restartButton = document.getElementById('restart-button');
+
+        let characterPosition = GAME_WIDTH / 2 - CHARACTER_WIDTH / 2;
+        let items = [];
+        let energy = MAX_ENERGY;
+        let score = 0;
+        let gameOver = false;
+        let speedBoost = false;
+        let gameLoop;
+        let keysPressed = {};
+        let isDragging = false;
+        let dragStartX = 0;
+
+        function moveCharacter(newPosition) {
+            characterPosition = Math.max(0, Math.min(GAME_WIDTH - CHARACTER_WIDTH, newPosition));
+            character.style.left = characterPosition + 'px';
+        }
+
+        function createItem() {
+            const item = document.createElement('div');
+            item.className = 'item';
+            const itemType = Math.random() < SPECIAL_ITEM_CHANCE ? 
+                (Math.random() < 0.5 ? 'speed' : 'energy') : 'normal';
+            item.classList.add(itemType);
+
+            switch(itemType) {
+                case 'speed':
+                    item.style.backgroundImage = "url('이미지/coffee.png')";
+                    break;
+                case 'energy':
+                    item.style.backgroundImage = "url('이미지/money.png')";
+                    break;
+                default:
+                    item.style.backgroundImage = "url('이미지/document.png')";
+            }
+
+            const itemSize = itemType === 'normal' ? NORMAL_ITEM_SIZE : SPECIAL_ITEM_SIZE;
+            item.style.width = `${itemSize}px`;
+            item.style.height = `${itemSize}px`;
+            item.style.left = Math.random() * (GAME_WIDTH - itemSize) + 'px';
+            item.style.top = '0px';
+            gameBoard.appendChild(item);
+            return { element: item, type: itemType, y: 0, size: itemSize };
+        }
+
+        function updateGame() {
+            if (gameOver) return;
+
+            const moveDistance = speedBoost ? CHARACTER_SPEED * 2 : CHARACTER_SPEED;
+            if (keysPressed['ArrowLeft']) moveCharacter(characterPosition - moveDistance);
+            if (keysPressed['ArrowRight']) moveCharacter(characterPosition + moveDistance);
+
+            items.forEach((item, index) => {
+                item.y += FALL_SPEED;
+                item.element.style.top = item.y + 'px';
+
+                if (item.y + item.size > GAME_HEIGHT - CHARACTER_HEIGHT &&
+                    parseInt(item.element.style.left) < characterPosition + CHARACTER_WIDTH &&
+                    parseInt(item.element.style.left) + item.size > characterPosition) {
+                    score++;
+                    scoreElement.textContent = score;
+                    if (item.type === 'speed') {
+                        speedBoost = true;
+                        character.style.filter = 'brightness(1.2)';
+                        setTimeout(() => {
+                            speedBoost = false;
+                            character.style.filter = 'none';
+                        }, SPEED_BOOST_DURATION);
+                    } else if (item.type === 'energy') {
+                        energy = Math.min(energy + 2, MAX_ENERGY);
+                        energyElement.textContent = energy;
+                    }
+                    gameBoard.removeChild(item.element);
+                    items.splice(index, 1);
+                } else if (item.y > GAME_HEIGHT) {
+                    energy--;
+                    energyElement.textContent = energy;
+                    if (energy <= 0) {
+                        endGame();
+                    }
+                    gameBoard.removeChild(item.element);
+                    items.splice(index, 1);
+                }
+            });
+
+            if (Math.random() < ITEM_GENERATION_CHANCE) {
+                items.push(createItem());
+            }
+
+            gameLoop = requestAnimationFrame(updateGame);
+        }
+
+        function startGame() {
+            characterPosition = GAME_WIDTH / 2 - CHARACTER_WIDTH / 2;
+            items = [];
+            energy = MAX_ENERGY;
+            score = 0;
+            gameOver = false;
+            speedBoost = false;
+
+            moveCharacter(characterPosition);
+            scoreElement.textContent = score;
+            energyElement.textContent = energy;
+            gameOverElement.style.display = 'none';
+            startScreen.style.display = 'none';
+
+            document.querySelectorAll('.item').forEach(item => item.remove());
+
+            updateGame();
+        }
+
+        function endGame() {
+            gameOver = true;
+            cancelAnimationFrame(gameLoop);
+            document.querySelectorAll('.item').forEach(item => item.remove());
+            gameOverElement.style.display = 'flex';
+        }
+
+        document.addEventListener('keydown', (e) => {
+            if (e.key === 'ArrowLeft' || e.key === 'ArrowRight') {
+                keysPressed[e.key] = true;
+            }
+        });
+
+        document.addEventListener('keyup', (e) => {
+            if (e.key === 'ArrowLeft' || e.key === 'ArrowRight') {
+                keysPressed[e.key] = false;
+            }
+        });
+
+        startButton.addEventListener('click', startGame);
+        restartButton.addEventListener('click', startGame);
+
+        // 캐릭터 드래그 기능
+        character.addEventListener('pointerdown', startDrag);
+        document.addEventListener('pointermove', drag);
+        document.addEventListener('pointerup', endDrag);
+        document.addEventListener('pointercancel', endDrag);
+
+        function startDrag(e) {
+            isDragging = true;
+            dragStartX = e.clientX - characterPosition;
+            character.setPointerCapture(e.pointerId);
+        }
+
+        function drag(e) {
+            if (isDragging) {
+                const newPosition = e.clientX - dragStartX;
+                moveCharacter(newPosition);
+            }
+        }
+
+        function endDrag(e) {
+            isDragging = false;
+            character.releasePointerCapture(e.pointerId);
+        }
+
+        // 초기 게임 설정
+        moveCharacter(characterPosition);
+        gameOverElement.style.display = 'none';
+    </script>
+</body>
+</html>
